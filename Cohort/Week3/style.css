@@ -1,0 +1,17 @@
+body {
+  background-color: #121212;
+  color: #fff;
+  font-family: monospace;
+}
+
+#parent {
+  border: 1px solid red;
+  display: grid;
+  grid-template-rows: 100px 100px 100px;
+}
+
+.child {
+  border: 1px solid blue;
+  background-color: green;
+  color: #000;
+}
