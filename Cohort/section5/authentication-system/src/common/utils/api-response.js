@@ -1,0 +1,23 @@
+class ApiResponse {
+  static ok(res, message, data = null) {
+    return res.status(201).json({
+      success: true,
+      message,
+      data,
+    });
+  }
+
+  static create(res, message, data = null) {
+    return res.status(201).json({
+      success: true,
+      message,
+      data,
+    });
+  }
+
+  static noContent(res) {
+    return res.status(204).send();
+  }
+}
+
+export default ApiResponse;
