@@ -99,4 +99,18 @@ const forgotPassword = async (email) => {
   //TODO: mail bhejna nhi aata
 };
 
-export { register };
+const verifyEmial = async function (token) {
+  const hashedToken = hashToken(token);
+  const user = await User.findOne({ verificationTone: hashedToken }).select(
+    "+verificationToken",
+  );
+
+  if (!user) throw ApiError.notfound("No  email");
+
+  user.isVerified = true;
+  user.verificationTone = undefined;
+  await user.save();
+  return user;
+};
+
+export { register, login, refresh, logout, forgotPassword };
