@@ -7,3 +7,7 @@ const authenticationController = new AuthenticationController();
 authRouter.post("/signup", (req, res) => {
   authenticationController.handleSignup(req, res);
 });
+
+authRouter.post("/login", (req, res) => {
+  authenticationController.handleLogin(req, res);
+});

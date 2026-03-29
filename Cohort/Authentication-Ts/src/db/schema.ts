@@ -13,7 +13,7 @@ export const usersTable = pgTable("users", {
   lastName: varchar("last_name", { length: 45 }).notNull(),
   email: varchar("email", { length: 320 }).notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
-  password: varchar("password", { length: 60 }).notNull(),
+  password: varchar("password", { length: 64 }).notNull(),
   salt: text("salt").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").$onUpdate(() => new Date()),
