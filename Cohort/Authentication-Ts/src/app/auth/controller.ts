@@ -4,6 +4,7 @@ import db from "../../db/index.js";
 import { usersTable } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
+import { createUserToken } from "./utils/token.js";
 
 class AuthenticationController {
   public async handleSignup(req: Request, res: Response) {
@@ -87,10 +88,43 @@ class AuthenticationController {
     }
 
     //TODO: Generate and return JWT token here
+    const token = createUserToken({ id: user.id });
 
     return res.status(200).json({
       message: "Login successful",
-      data: { id: user.id },
+      data: { id: user.id, token },
+    });
+  }
+
+  public async handleMe(req: Request, res: Response) {
+    // @ts-ignore
+    const userId = req.user?.id as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Unauthorized. Please log in to access this resource.",
+      });
+    }
+
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      message: "User details retrieved successfully",
+      data: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+      },
     });
   }
 }
