@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "hello-android-2",
+    "name": "Expense Tracker",
     "slug": "hello-android-2",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,6 +12,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.thitainfo.expensetracker",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -43,6 +45,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c1253a7d-674f-4704-a226-0dadd6777778"
+      }
     }
   }
 }

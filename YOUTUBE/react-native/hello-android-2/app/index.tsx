@@ -1,605 +1,1800 @@
-import React, { useEffect, useRef } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  StyleSheet,
-  Linking,
-  Dimensions,
-  Platform,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
+import { StatusBar } from "expo-status-bar";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Dimensions,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import Animated, {
+  Easing,
   FadeInDown,
   FadeInLeft,
-  FadeInRight,
   FadeInUp,
+  FadeOut,
   ZoomIn,
+  useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withRepeat,
   withSequence,
   withTiming,
-  useAnimatedStyle,
-  Easing,
 } from "react-native-reanimated";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width: W } = Dimensions.get("window");
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const C = {
-  bg:       "#06091A",
-  surface:  "#0D1426",
-  card:     "#111827",
-  border:   "#1E2D50",
-  border2:  "#243460",
-  text:     "#F1F5F9",
-  sub:      "#94A3B8",
-  muted:    "#475569",
-  blue:     "#3B82F6",
-  blueD:    "#1D4ED8",
-  purple:   "#8B5CF6",
-  green:    "#10B981",
-  orange:   "#F97316",
-  red:      "#F87171",
-  yellow:   "#FCD34D",
+  bg: "#06091A",
+  surface: "#0D1426",
+  card: "#111827",
+  border: "#1E2D50",
+  border2: "#243460",
+  text: "#F1F5F9",
+  sub: "#94A3B8",
+  muted: "#475569",
+  blue: "#3B82F6",
+  blueD: "#1D4ED8",
+  purple: "#8B5CF6",
+  green: "#10B981",
+  orange: "#F97316",
+  red: "#F87171",
+  yellow: "#FCD34D",
 };
 
-const open = (url: string) => Linking.openURL(url);
+// ─── Types ────────────────────────────────────────────────────────────────────
+type TxType = "income" | "expense";
+type Category =
+  | "Salary"
+  | "Freelance"
+  | "Investment"
+  | "Gift"
+  | "Food"
+  | "Transport"
+  | "Shopping"
+  | "Bills"
+  | "Health"
+  | "Entertainment"
+  | "Education"
+  | "Other";
 
-// ─── Pulse dot ────────────────────────────────────────────────────────────────
-function PulseDot() {
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(1);
-
-  useEffect(() => {
-    scale.value = withRepeat(
-      withSequence(
-        withTiming(1.6, { duration: 700, easing: Easing.out(Easing.ease) }),
-        withTiming(1,   { duration: 700, easing: Easing.in(Easing.ease) })
-      ),
-      -1,
-      false
-    );
-    opacity.value = withRepeat(
-      withSequence(
-        withTiming(0.3, { duration: 700 }),
-        withTiming(1,   { duration: 700 })
-      ),
-      -1,
-      false
-    );
-  }, []);
-
-  const ring = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
-
-  return (
-    <View style={s.dotWrap}>
-      <Animated.View style={[s.dotRing, ring]} />
-      <View style={s.dot} />
-    </View>
-  );
+interface Transaction {
+  id: string;
+  type: TxType;
+  category: Category;
+  amount: number;
+  description: string;
+  date: string;
+  dateLabel: string;
 }
 
-// ─── Section Header ───────────────────────────────────────────────────────────
-function SectionTitle({ title, delay = 0 }: { title: string; delay?: number }) {
+interface TxForm {
+  type: TxType;
+  category: Category;
+  amount: string;
+  description: string;
+}
+
+interface UserProfile {
+  name: string;
+  email: string;
+  phone: string;
+  photoUri: string | null;
+}
+
+interface FilterState {
+  type: "all" | TxType;
+  category: Category | "All";
+  dateRange: "all" | "today" | "week" | "month";
+}
+
+// ─── Category Metadata ────────────────────────────────────────────────────────
+const INCOME_CATEGORIES: Category[] = [
+  "Salary",
+  "Freelance",
+  "Investment",
+  "Gift",
+];
+const EXPENSE_CATEGORIES: Category[] = [
+  "Food",
+  "Transport",
+  "Shopping",
+  "Bills",
+  "Health",
+  "Entertainment",
+  "Education",
+  "Other",
+];
+const ALL_CATEGORIES: Category[] = [
+  ...INCOME_CATEGORIES,
+  ...EXPENSE_CATEGORIES,
+];
+
+const CATEGORY_META: Record<
+  Category,
+  { icon: keyof typeof Ionicons.glyphMap; color: string }
+> = {
+  Salary: { icon: "cash-outline", color: C.green },
+  Freelance: { icon: "laptop-outline", color: C.blue },
+  Investment: { icon: "trending-up-outline", color: C.purple },
+  Gift: { icon: "gift-outline", color: C.yellow },
+  Food: { icon: "fast-food-outline", color: C.orange },
+  Transport: { icon: "car-outline", color: C.blue },
+  Shopping: { icon: "bag-handle-outline", color: C.purple },
+  Bills: { icon: "receipt-outline", color: C.red },
+  Health: { icon: "medical-outline", color: C.green },
+  Entertainment: { icon: "film-outline", color: C.yellow },
+  Education: { icon: "school-outline", color: C.blue },
+  Other: { icon: "ellipsis-horizontal-outline", color: C.muted },
+};
+
+// ─── Seed Data ────────────────────────────────────────────────────────────────
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString();
+}
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+const SEED_TRANSACTIONS: Transaction[] = [
+  {
+    id: "s1",
+    type: "income",
+    category: "Salary",
+    amount: 85000,
+    description: "March salary",
+    date: daysAgo(0),
+    dateLabel: fmtDate(daysAgo(0)),
+  },
+  {
+    id: "s2",
+    type: "expense",
+    category: "Food",
+    amount: 650,
+    description: "Dinner with friends",
+    date: daysAgo(0),
+    dateLabel: fmtDate(daysAgo(0)),
+  },
+  {
+    id: "s3",
+    type: "expense",
+    category: "Transport",
+    amount: 250,
+    description: "Cab to office",
+    date: daysAgo(1),
+    dateLabel: fmtDate(daysAgo(1)),
+  },
+  {
+    id: "s4",
+    type: "income",
+    category: "Freelance",
+    amount: 12000,
+    description: "UI design project",
+    date: daysAgo(2),
+    dateLabel: fmtDate(daysAgo(2)),
+  },
+  {
+    id: "s5",
+    type: "expense",
+    category: "Shopping",
+    amount: 3200,
+    description: "New headphones",
+    date: daysAgo(3),
+    dateLabel: fmtDate(daysAgo(3)),
+  },
+  {
+    id: "s6",
+    type: "expense",
+    category: "Bills",
+    amount: 1800,
+    description: "Electricity bill",
+    date: daysAgo(4),
+    dateLabel: fmtDate(daysAgo(4)),
+  },
+  {
+    id: "s7",
+    type: "expense",
+    category: "Food",
+    amount: 420,
+    description: "Groceries",
+    date: daysAgo(5),
+    dateLabel: fmtDate(daysAgo(5)),
+  },
+  {
+    id: "s8",
+    type: "income",
+    category: "Investment",
+    amount: 5500,
+    description: "Mutual fund dividend",
+    date: daysAgo(10),
+    dateLabel: fmtDate(daysAgo(10)),
+  },
+  {
+    id: "s9",
+    type: "expense",
+    category: "Health",
+    amount: 900,
+    description: "Pharmacy",
+    date: daysAgo(14),
+    dateLabel: fmtDate(daysAgo(14)),
+  },
+  {
+    id: "s10",
+    type: "expense",
+    category: "Entertainment",
+    amount: 699,
+    description: "OTT subscription",
+    date: daysAgo(20),
+    dateLabel: fmtDate(daysAgo(20)),
+  },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function fmt(n: number): string {
+  return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 0 });
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function TransactionRow({
+  tx,
+  onDelete,
+  index,
+}: {
+  tx: Transaction;
+  onDelete: (id: string) => void;
+  index: number;
+}) {
+  const meta = CATEGORY_META[tx.category];
+  const isIncome = tx.type === "income";
   return (
-    <Animated.View entering={FadeInDown.delay(delay).springify()} style={s.sectionTitleRow}>
-      <View style={s.sectionAccent} />
-      <Text style={s.sectionTitle}>{title}</Text>
+    <Animated.View
+      entering={FadeInLeft.delay(index * 40).springify()}
+      style={s.txCard}
+    >
+      <View style={[s.txIconWrap, { backgroundColor: meta.color + "22" }]}>
+        <Ionicons name={meta.icon} size={20} color={meta.color} />
+      </View>
+      <View style={s.txCenter}>
+        <Text style={s.txCat}>{tx.category}</Text>
+        {tx.description ? <Text style={s.txDesc}>{tx.description}</Text> : null}
+        <Text style={s.txDate}>{tx.dateLabel}</Text>
+      </View>
+      <View style={s.txRight}>
+        <Text style={[s.txAmount, { color: isIncome ? C.green : C.red }]}>
+          {isIncome ? "+" : "-"}
+          {fmt(tx.amount)}
+        </Text>
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onDelete(tx.id);
+          }}
+          style={s.txDelete}
+          hitSlop={8}
+        >
+          <Ionicons name="trash-outline" size={14} color={C.muted} />
+        </Pressable>
+      </View>
     </Animated.View>
   );
 }
 
-// ─── Chip ─────────────────────────────────────────────────────────────────────
-function Chip({ label, color = C.blue }: { label: string; color?: string }) {
+function Pill({
+  label,
+  active,
+  onPress,
+  activeColor = C.blue,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  activeColor?: string;
+}) {
   return (
-    <View style={[s.chip, { borderColor: color + "44", backgroundColor: color + "18" }]}>
-      <Text style={[s.chipText, { color }]}>{label}</Text>
-    </View>
+    <Pressable
+      onPress={onPress}
+      style={[
+        s.pill,
+        active
+          ? { backgroundColor: activeColor, borderColor: activeColor }
+          : { backgroundColor: "transparent", borderColor: C.border },
+      ]}
+    >
+      <Text style={[s.pillText, { color: active ? "#fff" : C.sub }]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
-// ─── Experience Card ──────────────────────────────────────────────────────────
-function ExpCard({
-  role, company, period, desc, tags, link, delay,
-}: {
-  role: string; company: string; period: string; desc: string; tags: string[]; link?: string; delay: number;
-}) {
+// ─── Bar Chart ────────────────────────────────────────────────────────────────
+function BarChart({ transactions }: { transactions: Transaction[] }) {
+  const MAX_H = 80;
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return d;
+  });
+
+  const data = days.map((d) => {
+    const label = d
+      .toLocaleDateString("en-IN", { weekday: "short" })
+      .slice(0, 1);
+    const dayStr = d.toDateString();
+    const income = transactions
+      .filter(
+        (t) =>
+          new Date(t.date).toDateString() === dayStr && t.type === "income",
+      )
+      .reduce((s, t) => s + t.amount, 0);
+    const expense = transactions
+      .filter(
+        (t) =>
+          new Date(t.date).toDateString() === dayStr && t.type === "expense",
+      )
+      .reduce((s, t) => s + t.amount, 0);
+    return { label, income, expense };
+  });
+
+  const maxVal = Math.max(...data.map((d) => Math.max(d.income, d.expense)), 1);
+
   return (
-    <Animated.View entering={FadeInLeft.delay(delay).springify()} style={s.expCard}>
-      <View style={s.expDot} />
-      <View style={s.expLine} />
-      <View style={s.expContent}>
-        <Text style={s.expRole}>{role}</Text>
-        <Pressable onPress={() => link && open(link)} style={s.expCompanyRow}>
-          <Text style={[s.expCompany, link && { color: C.blue }]}>{company}</Text>
-          {link && <Ionicons name="open-outline" size={12} color={C.blue} style={{ marginLeft: 4 }} />}
-        </Pressable>
-        <Text style={s.expPeriod}>{period}</Text>
-        <Text style={s.expDesc}>{desc}</Text>
-        <View style={s.chipRow}>
-          {tags.map((t) => <Chip key={t} label={t} color={C.purple} />)}
+    <Animated.View
+      entering={FadeInUp.delay(200).springify()}
+      style={s.chartCard}
+    >
+      <Text style={s.chartTitle}>7-Day Overview</Text>
+      <View style={s.chartBars}>
+        {data.map((d, i) => (
+          <View key={i} style={s.chartCol}>
+            <View style={s.chartBarGroup}>
+              <View
+                style={[
+                  s.chartBar,
+                  {
+                    height: Math.max(
+                      (d.income / maxVal) * MAX_H,
+                      d.income > 0 ? 4 : 0,
+                    ),
+                    backgroundColor: C.green + "CC",
+                    marginRight: 2,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  s.chartBar,
+                  {
+                    height: Math.max(
+                      (d.expense / maxVal) * MAX_H,
+                      d.expense > 0 ? 4 : 0,
+                    ),
+                    backgroundColor: C.red + "CC",
+                  },
+                ]}
+              />
+            </View>
+            <Text style={s.chartLabel}>{d.label}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={s.chartLegend}>
+        <View style={s.legendItem}>
+          <View style={[s.legendDot, { backgroundColor: C.green }]} />
+          <Text style={s.legendText}>Income</Text>
+        </View>
+        <View style={s.legendItem}>
+          <View style={[s.legendDot, { backgroundColor: C.red }]} />
+          <Text style={s.legendText}>Expense</Text>
         </View>
       </View>
     </Animated.View>
   );
 }
 
-// ─── Project Card ─────────────────────────────────────────────────────────────
-function ProjectCard({
-  emoji, title, desc, tags, stack, link, delay,
-}: {
-  emoji: string; title: string; desc: string; tags: string[]; stack: string[]; link?: string; delay: number;
-}) {
+// ─── Storage keys ────────────────────────────────────────────────────────────
+const STORAGE_KEY = "expense_tracker_transactions";
+const PROFILE_KEY = "expense_tracker_profile";
+const DEFAULT_PROFILE: UserProfile = {
+  name: "",
+  email: "",
+  phone: "",
+  photoUri: null,
+};
+
+// ─── Splash Screen ───────────────────────────────────────────────────────────
+function SplashOverlay() {
+  const glow = useSharedValue(0.4);
+  const dot1 = useSharedValue(0.3);
+  const dot2 = useSharedValue(0.3);
+  const dot3 = useSharedValue(0.3);
+
+  useEffect(() => {
+    glow.value = withRepeat(
+      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+    dot1.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 400 }),
+        withTiming(0.3, { duration: 400 }),
+      ),
+      -1,
+    );
+    dot2.value = withDelay(
+      180,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 400 }),
+          withTiming(0.3, { duration: 400 }),
+        ),
+        -1,
+      ),
+    );
+    dot3.value = withDelay(
+      360,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 400 }),
+          withTiming(0.3, { duration: 400 }),
+        ),
+        -1,
+      ),
+    );
+  }, []);
+
+  const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
+  const dot1Style = useAnimatedStyle(() => ({ opacity: dot1.value }));
+  const dot2Style = useAnimatedStyle(() => ({ opacity: dot2.value }));
+  const dot3Style = useAnimatedStyle(() => ({ opacity: dot3.value }));
+
   return (
-    <Animated.View entering={FadeInUp.delay(delay).springify()} style={s.projCard}>
-      <View style={s.projTop}>
-        <Text style={s.projEmoji}>{emoji}</Text>
-        {link && (
-          <Pressable onPress={() => open(link)} style={s.projLinkBtn}>
-            <Ionicons name="arrow-forward-outline" size={16} color={C.blue} />
-          </Pressable>
-        )}
-      </View>
-      <Text style={s.projTitle}>{title}</Text>
-      <Text style={s.projDesc}>{desc}</Text>
-      <View style={s.chipRow}>
-        {tags.map((t) => <Chip key={t} label={t} color={C.orange} />)}
-      </View>
-      <View style={[s.chipRow, { marginTop: 6 }]}>
-        {stack.map((t) => <Chip key={t} label={t} color={C.muted} />)}
-      </View>
+    <Animated.View exiting={FadeOut.duration(700)} style={s.splashOverlay}>
+      {/* Glow ring behind icon */}
+      <Animated.View style={[s.splashGlow, glowStyle]} />
+
+      {/* Icon */}
+      <Animated.View
+        entering={ZoomIn.delay(150).springify()}
+        style={s.splashIconWrap}
+      >
+        <Ionicons name="wallet" size={54} color={C.blue} />
+      </Animated.View>
+
+      {/* App name */}
+      <Animated.Text
+        entering={FadeInDown.delay(450).springify()}
+        style={s.splashTitle}
+      >
+        Expense Tracker
+      </Animated.Text>
+
+      {/* Tagline */}
+      <Animated.Text
+        entering={FadeInDown.delay(620).springify()}
+        style={s.splashTagline}
+      >
+        Your smart money companion
+      </Animated.Text>
+
+      {/* Animated dots */}
+      <Animated.View
+        entering={FadeInUp.delay(780).springify()}
+        style={s.splashDots}
+      >
+        <Animated.View style={[s.splashDot, dot1Style]} />
+        <Animated.View style={[s.splashDot, dot2Style]} />
+        <Animated.View style={[s.splashDot, dot3Style]} />
+      </Animated.View>
+
+      {/* Brand */}
+      <Animated.View
+        entering={FadeInUp.delay(500).springify()}
+        style={s.splashBrand}
+      >
+        <Ionicons name="globe-outline" size={12} color={C.muted} />
+        <Text style={s.splashBrandText}>
+          by <Text style={s.splashBrandLink}>thitainfo.com</Text>
+        </Text>
+      </Animated.View>
     </Animated.View>
   );
 }
 
-// ─── Social Button ────────────────────────────────────────────────────────────
-function SocialBtn({
-  icon, label, url, color, delay,
+// ─── Profile Modal ────────────────────────────────────────────────────────────
+function ProfileModal({
+  visible,
+  profile,
+  onSave,
+  onClose,
 }: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; url: string; color: string; delay: number;
+  visible: boolean;
+  profile: UserProfile;
+  onSave: (p: UserProfile) => void;
+  onClose: () => void;
 }) {
+  const [form, setForm] = useState<UserProfile>(profile);
+
+  useEffect(() => {
+    if (visible) setForm(profile);
+  }, [visible]);
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      setForm((f) => ({ ...f, photoUri: result.assets[0].uri }));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  const initials = form.name.trim()
+    ? form.name
+        .trim()
+        .split(" ")
+        .map((w) => w[0])
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : "?";
+
   return (
-    <Animated.View entering={ZoomIn.delay(delay).springify()}>
-      <Pressable onPress={() => open(url)} style={[s.socialBtn, { borderColor: color + "55" }]}>
-        <Ionicons name={icon} size={20} color={color} />
-        <Text style={[s.socialLabel, { color }]}>{label}</Text>
-      </Pressable>
-    </Animated.View>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={false}
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={s.modalSafe}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
+        >
+          <ScrollView
+            contentContainerStyle={s.modalScroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Animated.View
+              entering={FadeInDown.delay(0).springify()}
+              style={s.modalHeader}
+            >
+              <Text style={s.modalTitle}>My Profile</Text>
+              <Pressable onPress={onClose} style={s.modalClose}>
+                <Ionicons name="close" size={22} color={C.text} />
+              </Pressable>
+            </Animated.View>
+
+            {/* Avatar picker */}
+            <Animated.View
+              entering={ZoomIn.delay(80).springify()}
+              style={s.profileAvatarSection}
+            >
+              <Pressable onPress={pickImage} style={s.profileAvatarWrap}>
+                {form.photoUri ? (
+                  <Image
+                    source={{ uri: form.photoUri }}
+                    style={s.profileAvatarImg}
+                  />
+                ) : (
+                  <View style={s.profileAvatarPlaceholder}>
+                    <Text style={s.profileAvatarInitials}>{initials}</Text>
+                  </View>
+                )}
+                <View style={s.profileCameraBtn}>
+                  <Ionicons name="camera" size={13} color="#fff" />
+                </View>
+              </Pressable>
+              <View style={s.profileAvatarActions}>
+                <Pressable onPress={pickImage} style={s.profileAvatarActionBtn}>
+                  <Ionicons name="image-outline" size={14} color={C.blue} />
+                  <Text style={[s.profileAvatarActionText, { color: C.blue }]}>
+                    Change
+                  </Text>
+                </Pressable>
+                {form.photoUri ? (
+                  <Pressable
+                    onPress={() => {
+                      setForm((f) => ({ ...f, photoUri: null }));
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                    style={s.profileAvatarActionBtn}
+                  >
+                    <Ionicons name="trash-outline" size={14} color={C.red} />
+                    <Text style={[s.profileAvatarActionText, { color: C.red }]}>
+                      Remove
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </Animated.View>
+
+            {/* Name */}
+            <Animated.View
+              entering={FadeInUp.delay(160).springify()}
+              style={s.modalSection}
+            >
+              <Text style={s.modalLabel}>Full Name</Text>
+              <TextInput
+                style={s.descInput}
+                value={form.name}
+                onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
+                placeholder="e.g. Raj Sharma"
+                placeholderTextColor={C.muted}
+                returnKeyType="next"
+              />
+            </Animated.View>
+
+            {/* Email */}
+            <Animated.View
+              entering={FadeInUp.delay(210).springify()}
+              style={s.modalSection}
+            >
+              <Text style={s.modalLabel}>Email</Text>
+              <TextInput
+                style={s.descInput}
+                value={form.email}
+                onChangeText={(v) => setForm((f) => ({ ...f, email: v }))}
+                placeholder="e.g. raj@example.com"
+                placeholderTextColor={C.muted}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                returnKeyType="next"
+              />
+            </Animated.View>
+
+            {/* Phone */}
+            <Animated.View
+              entering={FadeInUp.delay(260).springify()}
+              style={s.modalSection}
+            >
+              <Text style={s.modalLabel}>Phone</Text>
+              <TextInput
+                style={s.descInput}
+                value={form.phone}
+                onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
+                placeholder="e.g. +91 98765 43210"
+                placeholderTextColor={C.muted}
+                keyboardType="phone-pad"
+                returnKeyType="done"
+              />
+            </Animated.View>
+
+            {/* Save */}
+            <Animated.View
+              entering={FadeInUp.delay(310).springify()}
+              style={s.modalSection}
+            >
+              <Pressable
+                onPress={() => {
+                  onSave(form);
+                  Haptics.notificationAsync(
+                    Haptics.NotificationFeedbackType.Success,
+                  );
+                  onClose();
+                }}
+                style={s.submitBtn}
+              >
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={18}
+                  color="#fff"
+                />
+                <Text style={s.submitBtnText}>Save Profile</Text>
+              </Pressable>
+            </Animated.View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
   );
 }
-
-// ─── DATA ─────────────────────────────────────────────────────────────────────
-
-const SKILLS = [
-  { group: "Frontend & Web", color: C.blue,   items: ["JavaScript", "TypeScript", "React", "Next.js", "Node.js", "Express.js", "MongoDB", "TailwindCSS"] },
-  { group: "AI & Cloud",     color: C.purple, items: ["LangChain", "LangGraph", "OpenAI API", "RAG Pipelines", "GPT-4", "AWS", "Docker", "Git"] },
-];
-
-const EXPERIENCE = [
-  {
-    role: "Software Engineer",
-    company: "IBM India Software Lab",
-    period: "Apr 2024 – Present",
-    desc: "Working on Maximo enterprise asset management solutions using modern React and Graphite technologies.",
-    tags: ["React", "Graphite", "TypeScript"],
-    link: "https://www.ibm.com/in-en",
-  },
-  {
-    role: "Software Engineer",
-    company: "Visilean India Pvt. Ltd.",
-    period: "May 2023 – Apr 2024",
-    desc: "Built scalable web applications with React frontend.",
-    tags: ["React"],
-  },
-  {
-    role: "Software Engineer",
-    company: "Knovos India Pvt. Ltd.",
-    period: "May 2021 – May 2023",
-    desc: "Developed enterprise solutions with React for the legal technology sector.",
-    tags: ["React"],
-  },
-];
-
-const PROJECTS = [
-  {
-    emoji: "🤖",
-    title: "AI Thitainfo",
-    desc: "Full-stack SaaS platform for AI-powered multi-agent interactions with pay-per-session interviews and Razorpay payment integration.",
-    tags: ["Multi-Agent AI", "Pay-per-Session", "SaaS"],
-    stack: ["React", "Express.js", "PostgreSQL", "Docker"],
-    link: "https://ai.thitainfo.com/",
-  },
-  {
-    emoji: "🎬",
-    title: "URL to Video",
-    desc: "AI video generator with 4 modes — URL, Topic, Story, LeetCode — powered by ElevenLabs TTS, Remotion & OpenAI.",
-    tags: ["URL to Video", "LeetCode to Video"],
-    stack: ["Next.js", "Remotion", "OpenAI API", "ElevenLabs"],
-    link: "https://video.thitainfo.com/",
-  },
-  {
-    emoji: "📦",
-    title: "Chai Choco Tailwind",
-    desc: "Zero-build-step runtime CSS utility engine with a chocolate color palette. No PostCSS, no config, no compilation.",
-    tags: ["npm Package", "Runtime CSS", "Zero Build"],
-    stack: ["JavaScript", "Vite", "ESM", "UMD"],
-    link: "https://chaichoco.thitainfo.com/",
-  },
-  {
-    emoji: "🧮",
-    title: "CalculatorHub",
-    desc: "Professional calculators for mathematics, finance, health, technology, and more — 73+ calculators.",
-    tags: ["73+ Calculators", "Finance", "Health"],
-    stack: ["Next.js", "MongoDB", "DaisyUI"],
-    link: "https://www.calculatorhub.services/",
-  },
-  {
-    emoji: "⌨️",
-    title: "Typer Games",
-    desc: "Fun interactive typing games with multiplayer real-time race mode to improve typing speed and accuracy.",
-    tags: ["Multiplayer", "Real-time", "Race Mode"],
-    stack: ["React", "Node.js", "Socket.io"],
-  },
-  {
-    emoji: "💬",
-    title: "Chat With Your PDF",
-    desc: "Chat with PDF documents using AI. Upload PDFs and have intelligent conversations powered by LangChain & OpenAI.",
-    tags: ["AI Chat", "PDF Upload", "LangChain"],
-    stack: ["LangChain", "OpenAI", "Streamlit"],
-    link: "https://chat-with-your-pdf-by-sp.streamlit.app/",
-  },
-  {
-    emoji: "📅",
-    title: "BookYourSpa",
-    desc: "Seamless spa booking platform where customers can explore services, check availability, and book appointments instantly.",
-    tags: ["Online Booking", "SaaS"],
-    stack: ["Next.js", "MongoDB"],
-    link: "https://www.bookyourspa.in/",
-  },
-];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
+export default function ExpenseTracker() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
-export default function Portfolio() {
-  const scrollRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    const t = setTimeout(() => setShowSplash(false), 2400);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Load from storage on first launch
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
+      if (raw) {
+        try {
+          setTransactions(JSON.parse(raw));
+        } catch {
+          setTransactions(SEED_TRANSACTIONS);
+        }
+      } else {
+        // First ever launch — use seed data
+        setTransactions(SEED_TRANSACTIONS);
+      }
+      setLoaded(true);
+    });
+  }, []);
+
+  // Save to storage whenever transactions change (skip before initial load)
+  useEffect(() => {
+    if (!loaded) return;
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+  }, [transactions, loaded]);
+
+  const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
+  // Load profile
+  useEffect(() => {
+    AsyncStorage.getItem(PROFILE_KEY).then((raw) => {
+      if (raw) {
+        try {
+          setProfile(JSON.parse(raw));
+        } catch {}
+      }
+    });
+  }, []);
+
+  // Save profile whenever it changes
+  useEffect(() => {
+    AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  }, [profile]);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [form, setForm] = useState<TxForm>({
+    type: "expense",
+    category: "Food",
+    amount: "",
+    description: "",
+  });
+  const [amountError, setAmountError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterState>({
+    type: "all",
+    category: "All",
+    dateRange: "all",
+  });
+  const [showFilters, setShowFilters] = useState(false);
+
+  const filterHeight = useSharedValue(0);
+  const filterAnim = useAnimatedStyle(() => ({
+    height: filterHeight.value,
+    overflow: "hidden",
+  }));
+
+  // ── Derived
+  const totalIncome = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.type === "income")
+        .reduce((s, t) => s + t.amount, 0),
+    [transactions],
+  );
+  const totalExpense = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.type === "expense")
+        .reduce((s, t) => s + t.amount, 0),
+    [transactions],
+  );
+  const balance = totalIncome - totalExpense;
+
+  const filtered = useMemo(() => {
+    const now = new Date();
+    return transactions
+      .filter((tx) => {
+        if (filter.type !== "all" && tx.type !== filter.type) return false;
+        if (filter.category !== "All" && tx.category !== filter.category)
+          return false;
+        if (filter.dateRange !== "all") {
+          const txDate = new Date(tx.date);
+          if (filter.dateRange === "today")
+            return txDate.toDateString() === now.toDateString();
+          if (filter.dateRange === "week") {
+            const cutoff = new Date(now);
+            cutoff.setDate(now.getDate() - 7);
+            return txDate >= cutoff;
+          }
+          if (filter.dateRange === "month") {
+            return (
+              txDate.getMonth() === now.getMonth() &&
+              txDate.getFullYear() === now.getFullYear()
+            );
+          }
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [transactions, filter]);
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (filter.type !== "all") n++;
+    if (filter.category !== "All") n++;
+    if (filter.dateRange !== "all") n++;
+    return n;
+  }, [filter]);
+
+  // ── Handlers
+  const handleOpenAdd = useCallback(() => {
+    setForm({ type: "expense", category: "Food", amount: "", description: "" });
+    setAmountError(null);
+    setShowAddModal(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, []);
+
+  const handleTypeChange = useCallback((type: TxType) => {
+    setForm((prev) => ({
+      ...prev,
+      type,
+      category: type === "income" ? "Salary" : "Food",
+    }));
+  }, []);
+
+  const handleSubmit = useCallback(() => {
+    const parsed = parseFloat(form.amount);
+    if (isNaN(parsed) || parsed <= 0) {
+      setAmountError("Please enter a valid amount");
+      return;
+    }
+    const now = new Date().toISOString();
+    const newTx: Transaction = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: form.type,
+      category: form.category,
+      amount: parsed,
+      description: form.description.trim(),
+      date: now,
+      dateLabel: fmtDate(now),
+    };
+    setTransactions((prev) => [newTx, ...prev]);
+    setShowAddModal(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [form]);
+
+  const handleDelete = useCallback((id: string) => {
+    setTransactions((prev) => prev.filter((tx) => tx.id !== id));
+  }, []);
+
+  const toggleFilters = useCallback(() => {
+    const next = !showFilters;
+    setShowFilters(next);
+    filterHeight.value = withTiming(next ? 190 : 0, {
+      duration: 300,
+      easing: Easing.out(Easing.ease),
+    });
+  }, [showFilters]);
+
+  const categoryList =
+    form.type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
   return (
     <SafeAreaView style={s.safe}>
       <StatusBar style="light" backgroundColor={C.bg} />
 
       <ScrollView
-        ref={scrollRef}
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-
-        {/* ── HERO ──────────────────────────────────────────────────────── */}
-        <View style={s.hero}>
-          {/* Glow blobs */}
-          <View style={[s.blob, { top: -60, left: -80,  backgroundColor: C.blue   + "22", width: 260, height: 260 }]} />
-          <View style={[s.blob, { top: 40,  right: -100, backgroundColor: C.purple + "1A", width: 220, height: 220 }]} />
-
-          <Animated.View entering={ZoomIn.delay(0).springify()} style={s.availBadge}>
-            <PulseDot />
-            <Text style={s.availText}>Available for work</Text>
-          </Animated.View>
-
-          <Animated.Text entering={FadeInDown.delay(100).springify()} style={s.heroGreeting}>
-            Hi, I'm
-          </Animated.Text>
-
-          <Animated.Text entering={FadeInDown.delay(200).springify()} style={s.heroName}>
-            Saurabh
-          </Animated.Text>
-          <Animated.Text entering={FadeInDown.delay(280).springify()} style={s.heroNameAccent}>
-            Prajapati
-          </Animated.Text>
-
-          <Animated.Text entering={FadeInDown.delay(380).springify()} style={s.heroRole}>
-            Full-Stack Engineer · GenAI · React
-          </Animated.Text>
-
-          <Animated.Text entering={FadeInDown.delay(460).springify()} style={s.heroSub}>
-            Building enterprise apps, AI-powered tools & scalable web platforms.
-            Currently at{" "}
-            <Text style={{ color: C.blue, fontWeight: "600" }}>IBM</Text>
-            {" "}on Maximo asset management.
-          </Animated.Text>
-
-          <Animated.View entering={FadeInUp.delay(560).springify()} style={s.heroBtns}>
-            <Pressable onPress={() => open("https://saurabhprajapati.in/")} style={s.btnPrimary}>
-              <Ionicons name="globe-outline" size={16} color="#fff" />
-              <Text style={s.btnPrimaryText}>Portfolio</Text>
+        {/* ── HEADER ─────────────────────────────────────────────────────── */}
+        <Animated.View
+          entering={FadeInDown.delay(0).springify()}
+          style={s.header}
+        >
+          <Pressable
+            onPress={() => {
+              setShowProfileModal(true);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+            style={s.headerAvatar}
+          >
+            {profile.photoUri ? (
+              <Image
+                source={{ uri: profile.photoUri }}
+                style={s.headerAvatarImg}
+              />
+            ) : (
+              <View style={s.headerAvatarPlaceholder}>
+                <Text style={s.headerAvatarInitials}>
+                  {profile.name
+                    ? profile.name
+                        .trim()
+                        .split(" ")
+                        .map((w: string) => w[0])
+                        .slice(0, 2)
+                        .join("")
+                        .toUpperCase()
+                    : "?"}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={s.appTitle}>Expense Tracker</Text>
+            <Text style={s.appSub}>
+              {profile.name
+                ? `Hi, ${profile.name.trim().split(" ")[0]}`
+                : "Track your money"}
+            </Text>
+          </View>
+          <Animated.View entering={ZoomIn.delay(200).springify()}>
+            <Pressable onPress={handleOpenAdd} style={s.fab}>
+              <Ionicons name="add" size={26} color="#fff" />
             </Pressable>
-            <Pressable onPress={() => open("mailto:saurabhprajapati120@gmail.com")} style={s.btnOutline}>
-              <Ionicons name="mail-outline" size={16} color={C.blue} />
-              <Text style={s.btnOutlineText}>Contact</Text>
-            </Pressable>
           </Animated.View>
-
-          {/* Location */}
-          <Animated.View entering={FadeInUp.delay(640).springify()} style={s.heroMeta}>
-            <Ionicons name="location-outline" size={14} color={C.sub} />
-            <Text style={s.heroMetaText}>India</Text>
-          </Animated.View>
-        </View>
-
-        {/* ── STATS BAR ─────────────────────────────────────────────────── */}
-        <Animated.View entering={FadeInDown.delay(200).springify()} style={s.statsBar}>
-          {[
-            { n: "5+",  l: "Years Exp" },
-            { n: "3",   l: "Companies" },
-            { n: "7+",  l: "Projects"  },
-            { n: "73+", l: "Calculators" },
-          ].map((stat, i) => (
-            <View key={i} style={[s.statItem, i < 3 && s.statBorder]}>
-              <Text style={s.statNum}>{stat.n}</Text>
-              <Text style={s.statLabel}>{stat.l}</Text>
-            </View>
-          ))}
         </Animated.View>
 
-        {/* ── SKILLS ────────────────────────────────────────────────────── */}
-        <View style={s.section}>
-          <SectionTitle title="Tech Stack" delay={0} />
-          {SKILLS.map((group, gi) => (
-            <Animated.View
-              key={group.group}
-              entering={FadeInLeft.delay(gi * 100).springify()}
-              style={s.skillGroup}
+        {/* ── BALANCE CARD ────────────────────────────────────────────────── */}
+        <Animated.View
+          entering={FadeInDown.delay(100).springify()}
+          style={s.balanceCard}
+        >
+          <Text style={s.balanceLabel}>Total Balance</Text>
+          <Text
+            style={[s.balanceAmount, { color: balance >= 0 ? C.green : C.red }]}
+          >
+            {balance < 0 ? "-" : ""}
+            {fmt(Math.abs(balance))}
+          </Text>
+          <View style={s.balanceRow}>
+            <View style={s.balanceStat}>
+              <View style={s.balanceStatIcon}>
+                <Ionicons name="arrow-up-outline" size={14} color={C.green} />
+              </View>
+              <View>
+                <Text style={s.balanceStatLabel}>Income</Text>
+                <Text style={[s.balanceStatAmount, { color: C.green }]}>
+                  {fmt(totalIncome)}
+                </Text>
+              </View>
+            </View>
+            <View style={s.balanceDivider} />
+            <View style={s.balanceStat}>
+              <View
+                style={[s.balanceStatIcon, { backgroundColor: C.red + "22" }]}
+              >
+                <Ionicons name="arrow-down-outline" size={14} color={C.red} />
+              </View>
+              <View>
+                <Text style={s.balanceStatLabel}>Expense</Text>
+                <Text style={[s.balanceStatAmount, { color: C.red }]}>
+                  {fmt(totalExpense)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* ── CHART ───────────────────────────────────────────────────────── */}
+        <BarChart transactions={transactions} />
+
+        {/* ── FILTERS ─────────────────────────────────────────────────────── */}
+        <Animated.View
+          entering={FadeInDown.delay(250).springify()}
+          style={s.filterSection}
+        >
+          <Pressable onPress={toggleFilters} style={s.filterToggle}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
             >
-              <Text style={[s.skillGroupLabel, { color: group.color }]}>{group.group}</Text>
-              <View style={s.chipRow}>
-                {group.items.map((item) => (
-                  <Chip key={item} label={item} color={group.color} />
+              <Ionicons name="filter-outline" size={16} color={C.blue} />
+              <Text style={s.filterToggleText}>
+                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+              </Text>
+            </View>
+            <Ionicons
+              name={showFilters ? "chevron-up-outline" : "chevron-down-outline"}
+              size={16}
+              color={C.sub}
+            />
+          </Pressable>
+
+          <Animated.View style={filterAnim}>
+            <View style={s.filterBody}>
+              {/* Type */}
+              <View style={s.filterRow}>
+                {(["all", "income", "expense"] as const).map((t) => (
+                  <Pill
+                    key={t}
+                    label={
+                      t === "all"
+                        ? "All"
+                        : t.charAt(0).toUpperCase() + t.slice(1)
+                    }
+                    active={filter.type === t}
+                    onPress={() => setFilter((f) => ({ ...f, type: t }))}
+                    activeColor={
+                      t === "income"
+                        ? C.green
+                        : t === "expense"
+                          ? C.red
+                          : C.blue
+                    }
+                  />
                 ))}
               </View>
-            </Animated.View>
-          ))}
-        </View>
-
-        {/* ── EXPERIENCE ────────────────────────────────────────────────── */}
-        <View style={s.section}>
-          <SectionTitle title="Experience" delay={0} />
-          <View style={s.timeline}>
-            {EXPERIENCE.map((exp, i) => (
-              <ExpCard key={i} {...exp} delay={i * 120} />
-            ))}
-          </View>
-        </View>
-
-        {/* ── PROJECTS ──────────────────────────────────────────────────── */}
-        <View style={s.section}>
-          <SectionTitle title="Projects" delay={0} />
-          {PROJECTS.map((proj, i) => (
-            <ProjectCard key={proj.title} {...proj} delay={i * 80} />
-          ))}
-        </View>
-
-        {/* ── EDUCATION ─────────────────────────────────────────────────── */}
-        <View style={s.section}>
-          <SectionTitle title="Education" delay={0} />
-          <Animated.View entering={FadeInUp.delay(100).springify()} style={s.eduCard}>
-            <View style={s.eduIcon}>
-              <Ionicons name="school-outline" size={22} color={C.blue} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.eduDeg}>B.E. in Computer Science</Text>
-              <Text style={s.eduUni}>Gujarat Technological University</Text>
-              <Text style={s.eduMeta}>Graduated May 2021  ·  CGPA: 8.23</Text>
+              {/* Date range */}
+              <View style={s.filterRow}>
+                {(["all", "today", "week", "month"] as const).map((r) => (
+                  <Pill
+                    key={r}
+                    label={r.charAt(0).toUpperCase() + r.slice(1)}
+                    active={filter.dateRange === r}
+                    onPress={() => setFilter((f) => ({ ...f, dateRange: r }))}
+                  />
+                ))}
+              </View>
+              {/* Category */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginTop: 6 }}
+              >
+                <View style={s.filterRow}>
+                  {(["All", ...ALL_CATEGORIES] as (Category | "All")[]).map(
+                    (c) => (
+                      <Pill
+                        key={c}
+                        label={c}
+                        active={filter.category === c}
+                        onPress={() =>
+                          setFilter((f) => ({ ...f, category: c }))
+                        }
+                      />
+                    ),
+                  )}
+                </View>
+              </ScrollView>
             </View>
           </Animated.View>
-        </View>
-
-        {/* ── CONTACT ───────────────────────────────────────────────────── */}
-        <View style={s.section}>
-          <SectionTitle title="Connect" delay={0} />
-          <Animated.Text entering={FadeInDown.delay(100).springify()} style={s.connectSub}>
-            Let's build something great together.
-          </Animated.Text>
-
-          <View style={s.socialGrid}>
-            <SocialBtn icon="logo-github"   label="GitHub"    url="https://github.com/prajapatisaurabh"                            color={C.text}   delay={0}   />
-            <SocialBtn icon="logo-linkedin" label="LinkedIn"  url="https://www.linkedin.com/in/saurabh-prajapati-08b41915b/"       color="#0A66C2"  delay={80}  />
-            <SocialBtn icon="logo-twitter"  label="X / Twitter" url="https://x.com/saurabhkals"                                   color={C.text}   delay={160} />
-            <SocialBtn icon="logo-youtube"  label="YouTube"   url="https://www.youtube.com/@thitainfo"                             color="#FF0000"  delay={240} />
-            <SocialBtn icon="mail-outline"  label="Email"     url="mailto:saurabhprajapati120@gmail.com"                           color={C.orange} delay={320} />
-            <SocialBtn icon="globe-outline" label="Thitainfo" url="https://thitainfo.com/"                                         color={C.blue}   delay={400} />
-          </View>
-        </View>
-
-        {/* ── FOOTER ────────────────────────────────────────────────────── */}
-        <Animated.View entering={FadeInUp.delay(200).springify()} style={s.footer}>
-          <Text style={s.footerText}>Designed & built by Saurabh Prajapati</Text>
-          <Text style={s.footerSub}>React Native · Expo · 2025</Text>
         </Animated.View>
 
+        {/* ── TRANSACTIONS ────────────────────────────────────────────────── */}
+        <Animated.View
+          entering={FadeInDown.delay(300).springify()}
+          style={s.txSection}
+        >
+          <View style={s.txHeader}>
+            <Text style={s.txSectionTitle}>Transactions</Text>
+            <Text style={s.txCount}>
+              {filtered.length} item{filtered.length !== 1 ? "s" : ""}
+            </Text>
+          </View>
+
+          {filtered.length === 0 ? (
+            <View style={s.emptyState}>
+              <Ionicons name="wallet-outline" size={40} color={C.muted} />
+              <Text style={s.emptyText}>No transactions found</Text>
+              <Text style={s.emptySub}>
+                Try changing your filters or add a new transaction
+              </Text>
+            </View>
+          ) : (
+            filtered.map((tx, i) => (
+              <TransactionRow
+                key={tx.id}
+                tx={tx}
+                onDelete={handleDelete}
+                index={i}
+              />
+            ))
+          )}
+        </Animated.View>
+
+        {/* ── FOOTER ──────────────────────────────────────────────────────── */}
+        <Animated.View
+          entering={FadeInDown.delay(400).springify()}
+          style={s.footer}
+        >
+          <View style={s.footerDivider} />
+          <Ionicons name="globe-outline" size={14} color={C.muted} />
+          <Text style={s.footerText}>
+            Crafted by <Text style={s.footerLink}>thitainfo.com</Text>
+          </Text>
+          <Text style={s.footerCopy}>
+            © {new Date().getFullYear()} ThitaInfo · All rights reserved
+          </Text>
+        </Animated.View>
       </ScrollView>
+
+      {/* ── SPLASH ────────────────────────────────────────────────────────── */}
+      {showSplash && <SplashOverlay />}
+
+      {/* ── PROFILE MODAL ─────────────────────────────────────────────────── */}
+      <ProfileModal
+        visible={showProfileModal}
+        profile={profile}
+        onSave={setProfile}
+        onClose={() => setShowProfileModal(false)}
+      />
+
+      {/* ── ADD MODAL ──────────────────────────────────────────────────────── */}
+      <Modal
+        visible={showAddModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowAddModal(false)}
+      >
+        <SafeAreaView style={s.modalSafe}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={{ flex: 1 }}
+          >
+            <ScrollView
+              contentContainerStyle={s.modalScroll}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Modal header */}
+              <Animated.View
+                entering={FadeInDown.delay(0).springify()}
+                style={s.modalHeader}
+              >
+                <Text style={s.modalTitle}>Add Transaction</Text>
+                <Pressable
+                  onPress={() => setShowAddModal(false)}
+                  style={s.modalClose}
+                >
+                  <Ionicons name="close" size={22} color={C.text} />
+                </Pressable>
+              </Animated.View>
+
+              {/* Type toggle */}
+              <Animated.View
+                entering={FadeInUp.delay(80).springify()}
+                style={s.modalSection}
+              >
+                <Text style={s.modalLabel}>Type</Text>
+                <View style={s.typeRow}>
+                  <Pressable
+                    onPress={() => handleTypeChange("income")}
+                    style={[
+                      s.typeBtn,
+                      form.type === "income" && {
+                        backgroundColor: C.green,
+                        borderColor: C.green,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="arrow-up-outline"
+                      size={16}
+                      color={form.type === "income" ? "#fff" : C.sub}
+                    />
+                    <Text
+                      style={[
+                        s.typeBtnText,
+                        { color: form.type === "income" ? "#fff" : C.sub },
+                      ]}
+                    >
+                      Income
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => handleTypeChange("expense")}
+                    style={[
+                      s.typeBtn,
+                      form.type === "expense" && {
+                        backgroundColor: C.red,
+                        borderColor: C.red,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="arrow-down-outline"
+                      size={16}
+                      color={form.type === "expense" ? "#fff" : C.sub}
+                    />
+                    <Text
+                      style={[
+                        s.typeBtnText,
+                        { color: form.type === "expense" ? "#fff" : C.sub },
+                      ]}
+                    >
+                      Expense
+                    </Text>
+                  </Pressable>
+                </View>
+              </Animated.View>
+
+              {/* Amount */}
+              <Animated.View
+                entering={FadeInUp.delay(140).springify()}
+                style={s.modalSection}
+              >
+                <Text style={s.modalLabel}>Amount</Text>
+                <View
+                  style={[
+                    s.amountWrap,
+                    amountError ? { borderColor: C.red } : null,
+                  ]}
+                >
+                  <Text style={s.amountPrefix}>₹</Text>
+                  <TextInput
+                    style={s.amountInput}
+                    value={form.amount}
+                    onChangeText={(v) => {
+                      setAmountError(null);
+                      setForm((f) => ({ ...f, amount: v }));
+                    }}
+                    placeholder="0.00"
+                    placeholderTextColor={C.muted}
+                    keyboardType="decimal-pad"
+                    returnKeyType="done"
+                  />
+                </View>
+                {amountError ? (
+                  <Text style={s.errorText}>{amountError}</Text>
+                ) : null}
+              </Animated.View>
+
+              {/* Category */}
+              <Animated.View
+                entering={FadeInUp.delay(200).springify()}
+                style={s.modalSection}
+              >
+                <Text style={s.modalLabel}>Category</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View
+                    style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}
+                  >
+                    {categoryList.map((cat) => {
+                      const meta = CATEGORY_META[cat];
+                      const active = form.category === cat;
+                      return (
+                        <Pressable
+                          key={cat}
+                          onPress={() =>
+                            setForm((f) => ({ ...f, category: cat }))
+                          }
+                          style={[
+                            s.catChip,
+                            active
+                              ? {
+                                  backgroundColor: meta.color + "33",
+                                  borderColor: meta.color,
+                                }
+                              : {
+                                  backgroundColor: "transparent",
+                                  borderColor: C.border,
+                                },
+                          ]}
+                        >
+                          <Ionicons
+                            name={meta.icon}
+                            size={14}
+                            color={active ? meta.color : C.sub}
+                          />
+                          <Text
+                            style={[
+                              s.catChipText,
+                              { color: active ? meta.color : C.sub },
+                            ]}
+                          >
+                            {cat}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </Animated.View>
+
+              {/* Description */}
+              <Animated.View
+                entering={FadeInUp.delay(260).springify()}
+                style={s.modalSection}
+              >
+                <Text style={s.modalLabel}>
+                  Description <Text style={{ color: C.muted }}>(optional)</Text>
+                </Text>
+                <TextInput
+                  style={s.descInput}
+                  value={form.description}
+                  onChangeText={(v) =>
+                    setForm((f) => ({ ...f, description: v }))
+                  }
+                  placeholder="e.g. Dinner, Monthly rent..."
+                  placeholderTextColor={C.muted}
+                  returnKeyType="done"
+                />
+              </Animated.View>
+
+              {/* Submit */}
+              <Animated.View
+                entering={FadeInUp.delay(320).springify()}
+                style={s.modalSection}
+              >
+                <Pressable onPress={handleSubmit} style={s.submitBtn}>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={18}
+                    color="#fff"
+                  />
+                  <Text style={s.submitBtnText}>Add Transaction</Text>
+                </Pressable>
+              </Animated.View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-
 const s = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: C.bg },
+  safe: { flex: 1, backgroundColor: C.bg },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 40 },
 
-  // ── Hero
-  hero: {
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 40,
-    overflow: "hidden",
-  },
-  blob: {
-    position: "absolute",
-    borderRadius: 999,
-    ...(Platform.OS === "web" ? { filter: "blur(60px)" } as any : {}),
-  },
-  availBadge: {
+  // Header
+  header: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: C.green + "20",
-    borderWidth: 1,
-    borderColor: C.green + "44",
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 24,
-    gap: 8,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 20,
   },
-  availText:   { fontSize: 13, fontWeight: "600", color: C.green },
-  dotWrap:     { width: 14, height: 14, alignItems: "center", justifyContent: "center" },
-  dotRing:     { position: "absolute", width: 14, height: 14, borderRadius: 7, backgroundColor: C.green + "55" },
-  dot:         { width: 7, height: 7, borderRadius: 4, backgroundColor: C.green },
-
-  heroGreeting: { fontSize: 20, fontWeight: "400", color: C.sub, marginBottom: 4 },
-  heroName:     { fontSize: 52, fontWeight: "800", color: C.text, letterSpacing: -1.5, lineHeight: 56 },
-  heroNameAccent: { fontSize: 52, fontWeight: "800", color: C.blue, letterSpacing: -1.5, lineHeight: 60, marginBottom: 12 },
-  heroRole:     { fontSize: 16, fontWeight: "600", color: C.purple, marginBottom: 14, letterSpacing: 0.3 },
-  heroSub:      { fontSize: 15, lineHeight: 24, color: C.sub, marginBottom: 28, maxWidth: 360 },
-
-  heroBtns: { flexDirection: "row", gap: 12, marginBottom: 20 },
-  btnPrimary: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: C.blue, paddingHorizontal: 20, paddingVertical: 13,
-    borderRadius: 12,
+  appTitle: { fontSize: 26, fontWeight: "800", color: C.text },
+  appSub: { fontSize: 13, color: C.sub, marginTop: 2 },
+  fab: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: C.blue,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: C.blue,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
-  btnPrimaryText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  btnOutline: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    borderWidth: 1.5, borderColor: C.blue + "88",
-    paddingHorizontal: 20, paddingVertical: 13,
-    borderRadius: 12,
-  },
-  btnOutlineText: { color: C.blue, fontWeight: "700", fontSize: 14 },
 
-  heroMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
-  heroMetaText: { fontSize: 13, color: C.sub },
-
-  // ── Stats
-  statsBar: {
-    flexDirection: "row",
+  // Balance card
+  balanceCard: {
     marginHorizontal: 24,
+    marginBottom: 20,
+    backgroundColor: C.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 24,
+    alignItems: "center",
+  },
+  balanceLabel: {
+    fontSize: 13,
+    color: C.sub,
+    fontWeight: "500",
+    marginBottom: 8,
+  },
+  balanceAmount: {
+    fontSize: 40,
+    fontWeight: "800",
+    letterSpacing: -1,
+    marginBottom: 24,
+  },
+  balanceRow: {
+    flexDirection: "row",
+    width: "100%",
+    justifyContent: "space-around",
+    alignItems: "center",
+  },
+  balanceStat: { flexDirection: "row", alignItems: "center", gap: 12 },
+  balanceStatIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: C.green + "22",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  balanceStatLabel: {
+    fontSize: 11,
+    color: C.sub,
+    fontWeight: "500",
+    marginBottom: 2,
+  },
+  balanceStatAmount: { fontSize: 16, fontWeight: "700" },
+  balanceDivider: { width: 1, height: 40, backgroundColor: C.border },
+
+  // Chart
+  chartCard: {
+    marginHorizontal: 24,
+    marginBottom: 20,
     backgroundColor: C.surface,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: C.border,
-    marginBottom: 36,
-    overflow: "hidden",
+    padding: 18,
   },
-  statItem:   { flex: 1, alignItems: "center", paddingVertical: 16 },
-  statBorder: { borderRightWidth: 1, borderRightColor: C.border },
-  statNum:    { fontSize: 22, fontWeight: "800", color: C.text },
-  statLabel:  { fontSize: 10, color: C.sub, marginTop: 2, fontWeight: "500" },
+  chartTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: C.text,
+    marginBottom: 16,
+  },
+  chartBars: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    height: 90,
+  },
+  chartCol: { alignItems: "center", flex: 1 },
+  chartBarGroup: { flexDirection: "row", alignItems: "flex-end", height: 80 },
+  chartBar: { width: 7, borderRadius: 4, minHeight: 0 },
+  chartLabel: { fontSize: 10, color: C.muted, marginTop: 6, fontWeight: "600" },
+  chartLegend: { flexDirection: "row", gap: 16, marginTop: 12 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 11, color: C.sub },
 
-  // ── Section
-  section: { paddingHorizontal: 24, marginBottom: 44 },
-  sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 20 },
-  sectionAccent: { width: 4, height: 22, backgroundColor: C.blue, borderRadius: 2 },
-  sectionTitle: { fontSize: 22, fontWeight: "700", color: C.text },
+  // Filter
+  filterSection: { marginHorizontal: 24, marginBottom: 16 },
+  filterToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: C.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  filterToggleText: { fontSize: 14, fontWeight: "600", color: C.text },
+  filterBody: { paddingTop: 12, gap: 8 },
+  filterRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  pill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  pillText: { fontSize: 12, fontWeight: "600" },
 
-  // ── Skills
-  skillGroup: {
+  // Transactions
+  txSection: { paddingHorizontal: 24 },
+  txHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  txSectionTitle: { fontSize: 18, fontWeight: "700", color: C.text },
+  txCount: { fontSize: 12, color: C.muted, fontWeight: "500" },
+
+  txCard: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: C.surface,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: C.border,
-    padding: 16,
-    marginBottom: 12,
+    padding: 14,
+    marginBottom: 10,
+    gap: 12,
   },
-  skillGroupLabel: { fontSize: 12, fontWeight: "700", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.8 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 8, borderWidth: 1,
+  txIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  chipText: { fontSize: 12, fontWeight: "600" },
+  txCenter: { flex: 1 },
+  txCat: { fontSize: 14, fontWeight: "700", color: C.text },
+  txDesc: { fontSize: 12, color: C.sub, marginTop: 1 },
+  txDate: { fontSize: 11, color: C.muted, marginTop: 2 },
+  txRight: { alignItems: "flex-end", gap: 6 },
+  txAmount: { fontSize: 15, fontWeight: "700" },
+  txDelete: { padding: 4 },
 
-  // ── Experience timeline
-  timeline: { paddingLeft: 8 },
-  expCard: {
+  // Empty state
+  emptyState: { alignItems: "center", paddingVertical: 48 },
+  emptyText: { fontSize: 16, fontWeight: "600", color: C.sub, marginTop: 14 },
+  emptySub: {
+    fontSize: 13,
+    color: C.muted,
+    marginTop: 6,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+
+  // Modal
+  modalSafe: { flex: 1, backgroundColor: C.bg },
+  modalScroll: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 40 },
+  modalHeader: {
     flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 28,
   },
-  expDot: {
-    width: 12, height: 12, borderRadius: 6,
-    backgroundColor: C.blue, borderWidth: 2, borderColor: C.blue + "55",
-    marginTop: 4, marginRight: 16, flexShrink: 0,
-  },
-  expLine: {
-    position: "absolute",
-    left: 5, top: 16, bottom: -28,
-    width: 2, backgroundColor: C.border,
-  },
-  expContent: { flex: 1 },
-  expRole:    { fontSize: 16, fontWeight: "700", color: C.text, marginBottom: 3 },
-  expCompanyRow: { flexDirection: "row", alignItems: "center", marginBottom: 2 },
-  expCompany: { fontSize: 14, fontWeight: "600", color: C.sub },
-  expPeriod:  { fontSize: 12, color: C.muted, marginBottom: 8 },
-  expDesc:    { fontSize: 13, lineHeight: 20, color: C.sub, marginBottom: 10 },
-
-  // ── Projects
-  projCard: {
+  modalTitle: { fontSize: 22, fontWeight: "800", color: C.text },
+  modalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: C.surface,
-    borderRadius: 16,
     borderWidth: 1,
     borderColor: C.border,
-    padding: 18,
-    marginBottom: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  projTop:     { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 },
-  projEmoji:   { fontSize: 28 },
-  projLinkBtn: {
-    width: 34, height: 34, borderRadius: 10,
-    backgroundColor: C.blue + "22", alignItems: "center", justifyContent: "center",
+  modalSection: { marginBottom: 24 },
+  modalLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: C.sub,
+    marginBottom: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
-  projTitle: { fontSize: 17, fontWeight: "700", color: C.text, marginBottom: 6 },
-  projDesc:  { fontSize: 13, lineHeight: 20, color: C.sub, marginBottom: 10 },
 
-  // ── Education
-  eduCard: {
+  typeRow: { flexDirection: "row", gap: 12 },
+  typeBtn: {
+    flex: 1,
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 16,
-    backgroundColor: C.surface,
-    borderRadius: 16,
-    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
     borderColor: C.border,
-    padding: 18,
-  },
-  eduIcon: {
-    width: 44, height: 44, borderRadius: 12,
-    backgroundColor: C.blue + "20", alignItems: "center", justifyContent: "center",
-  },
-  eduDeg:  { fontSize: 16, fontWeight: "700", color: C.text, marginBottom: 4 },
-  eduUni:  { fontSize: 14, color: C.sub, marginBottom: 4 },
-  eduMeta: { fontSize: 12, color: C.muted },
-
-  // ── Contact
-  connectSub: { fontSize: 15, color: C.sub, marginBottom: 20 },
-  socialGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  socialBtn: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 16, paddingVertical: 12,
-    borderRadius: 12, borderWidth: 1,
     backgroundColor: C.surface,
   },
-  socialLabel: { fontSize: 13, fontWeight: "600" },
+  typeBtnText: { fontSize: 15, fontWeight: "700" },
 
-  // ── Footer
-  footer: { alignItems: "center", paddingVertical: 24, borderTopWidth: 1, borderTopColor: C.border, marginHorizontal: 24 },
-  footerText: { fontSize: 13, color: C.sub, fontWeight: "500" },
-  footerSub:  { fontSize: 11, color: C.muted, marginTop: 4 },
+  amountWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  amountPrefix: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: C.sub,
+    marginRight: 8,
+  },
+  amountInput: {
+    flex: 1,
+    fontSize: 32,
+    fontWeight: "800",
+    color: C.text,
+    paddingVertical: 12,
+  },
+  errorText: { fontSize: 12, color: C.red, marginTop: 6 },
+
+  catChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  catChipText: { fontSize: 13, fontWeight: "600" },
+
+  descInput: {
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    color: C.text,
+  },
+
+  submitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: C.blue,
+    borderRadius: 16,
+    paddingVertical: 16,
+  },
+  submitBtnText: { fontSize: 16, fontWeight: "800", color: "#fff" },
+
+  // Header avatar
+  headerAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: C.border2,
+  },
+  headerAvatarImg: { width: 44, height: 44 },
+  headerAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: C.purple + "33",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerAvatarInitials: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: C.purple,
+    textAlign: "center",
+    textAlignVertical: "center",
+    width: 44,
+    height: 44,
+    includeFontPadding: false,
+  },
+
+  // Profile modal avatar
+  profileAvatarSection: {
+    alignItems: "center",
+    marginBottom: 32,
+    marginTop: 8,
+  },
+  profileAvatarWrap: { position: "relative" },
+  profileAvatarImg: { width: 100, height: 100, borderRadius: 50 },
+  profileAvatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: C.purple + "33",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: C.border2,
+  },
+  profileAvatarInitials: {
+    fontSize: 36,
+    fontWeight: "800",
+    color: C.purple,
+    textAlign: "center",
+    textAlignVertical: "center",
+    width: 100,
+    height: 100,
+    includeFontPadding: false,
+  },
+  profileCameraBtn: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: C.blue,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: C.bg,
+  },
+  profileAvatarHint: { fontSize: 12, color: C.muted, marginTop: 10 },
+  profileAvatarActions: { flexDirection: "row", gap: 16, marginTop: 12 },
+  profileAvatarActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  profileAvatarActionText: { fontSize: 13, fontWeight: "600" },
+
+  // Splash
+  splashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: C.bg,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 999,
+    gap: 0,
+  },
+  splashGlow: {
+    position: "absolute",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: C.blue + "18",
+  },
+  splashIconWrap: {
+    width: 100,
+    height: 100,
+    borderRadius: 30,
+    backgroundColor: C.blue + "18",
+    borderWidth: 1.5,
+    borderColor: C.blue + "44",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 28,
+  },
+  splashTitle: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: C.text,
+    letterSpacing: -0.5,
+    marginBottom: 10,
+  },
+  splashTagline: {
+    fontSize: 14,
+    color: C.sub,
+    fontWeight: "500",
+    marginBottom: 36,
+  },
+  splashDots: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 60,
+  },
+  splashDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: C.blue,
+  },
+  splashBrand: {
+    position: "absolute",
+    bottom: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  splashBrandText: { fontSize: 12, color: C.muted, fontWeight: "500" },
+  splashBrandLink: { color: C.blue, fontWeight: "700" },
+
+  // Footer
+  footer: {
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 20,
+    gap: 6,
+  },
+  footerDivider: {
+    width: 40,
+    height: 1,
+    backgroundColor: C.border,
+    marginBottom: 12,
+  },
+  footerText: { fontSize: 12, color: C.muted, fontWeight: "500" },
+  footerLink: { color: C.blue, fontWeight: "700" },
+  footerCopy: {
+    fontSize: 11,
+    color: C.muted + "99",
+    fontWeight: "400",
+    letterSpacing: 0.3,
+  },
 });
