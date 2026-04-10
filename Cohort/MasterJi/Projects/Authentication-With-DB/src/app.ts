@@ -1,4 +1,4 @@
-import express, { Request, Response } from "express";
+import express, { type Request, type Response } from "express";
 
 const app = express();
 const PORT = 3000;
@@ -6,18 +6,12 @@ const PORT = 3000;
 // Middleware
 app.use(express.json());
 
-// Health Route
-app.get("/health", (req: Request, res: Response) => {
-  res.status(200).json({
-    status: "OK",
-    message: "Server is running 🚀",
-  });
-});
+// Routes
+import authRouter from "./module/auth/router.js";
+import healthRouter from "./module/health/routes.js";
 
-// Root Route
-app.get("/", (req: Request, res: Response) => {
-  res.send("Welcome to Express + TypeScript App");
-});
+app.use("/api", authRouter);
+app.use("/api", healthRouter);
 
 // Start Server
 app.listen(PORT, () => {
