@@ -2,6 +2,10 @@
   "name": "1-min-checkbox",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node --watch index.js"
+  },
   "license": "MIT",
   "dependencies": {
     "express": "^5.2.1"
