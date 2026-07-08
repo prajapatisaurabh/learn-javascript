@@ -26,7 +26,7 @@ async function run() {
       "For each risk, give a title, relevant tags, and a score from 0 to 100.",
   });
 
-  console.log(result.output_parsed);
+  console.log(JSON.stringify(result.output_parsed, null, 2));
 }
 
 run();
