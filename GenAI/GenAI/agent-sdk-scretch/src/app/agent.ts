@@ -1,3 +1,8 @@
+export interface IMessage {
+  role: "developer" | "user" | "assistant";
+  content: string;
+}
+
 export class AgentBuilder {
   public instructions: string | undefined;
 
@@ -9,19 +14,25 @@ export class AgentBuilder {
   }
 
   public build(): Agent {
-    return new Agent();
+    return new Agent(this);
   }
 }
 
 export class Agent {
+  private instructions: string;
+  private messagesHistory: IMessage[] = [];
+
+  constructor(builder: AgentBuilder) {
+    this.instructions = builder.instructions ?? "Default instructions";
+    this.messagesHistory = [];
+  }
+
   static builder(): AgentBuilder {
     return new AgentBuilder();
   }
 
   public async run(input: string): Promise<void> {
     console.log(`Agent received input: ${input}`);
-    // Here you can implement the logic to process the input and generate a response.
-    // For demonstration purposes, we'll just log a simple response.
     console.log(`Agent response: I can assist you with that!`);
   }
 }
