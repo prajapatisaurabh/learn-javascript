@@ -5,5 +5,7 @@ async function main() {
     .setInstructions("You are a helpful assistant.")
     .build();
 
-  agent.run("Hello, how can I assist you today?");
+  await agent.run("Hello, how can I assist you today?");
 }
+
+main().catch(console.error);
