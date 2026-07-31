@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import { Agent } from "./app/agent.js";
 import type { ITool } from "./app/agent.js";
 
@@ -17,7 +20,11 @@ async function main() {
     .tool(weatherTool)
     .build();
 
-  const result = await agent.run("What is the weather in New York City?");
+  agent.attachInterceptor((message) => {
+    console.log(`[${message.role.toUpperCase()}]: ${message.content}`);
+  });
+
+  const result = await agent.run("What is the weather in Ahmedabad and Patna?");
   console.log("✅", result);
 }
 

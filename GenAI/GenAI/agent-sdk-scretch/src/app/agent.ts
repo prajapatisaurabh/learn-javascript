@@ -13,6 +13,8 @@ export interface ITool {
   execute: (input: string) => Promise<string>;
 }
 
+export type Interceptor = (message: IMessage) => void;
+
 /** Shape the model is asked to return by HARNESS_PROMPT. */
 export interface IHarnessResponse {
   Initial?: { summary?: string; key_concepts?: string[] };
@@ -58,12 +60,20 @@ export class Agent {
   private MAX_Loops = 30;
   private model: string;
   private client: OpenAI;
+  private interceptors: Interceptor[];
+
+  private notifyInterceptors(message: IMessage): void {
+    for (const interceptor of this.interceptors) {
+      interceptor(message);
+    }
+  }
 
   constructor(builder: AgentBuilder) {
     this.toolMap = new Map<string, ITool>();
     this.model = builder.model;
     // Reads OPENAI_API_KEY from the environment.
     this.client = new OpenAI();
+    this.interceptors = [];
 
     for (const tool of builder.toolList) {
       this.toolMap.set(tool.name, tool);
@@ -88,6 +98,10 @@ export class Agent {
     return new AgentBuilder();
   }
 
+  public attachInterceptor(interceptor: Interceptor): void {
+    this.interceptors.push(interceptor);
+  }
+
   public printSystemPrompt(): void {
     console.log("System Prompt:");
     console.log(this.instructions);
@@ -108,6 +122,11 @@ export class Agent {
       if (!response) {
         // Malformed JSON: tell the model and let it retry on the next loop.
         this.messagesHistory.push({
+          role: "developer",
+          content:
+            "Your last message was not valid JSON. Reply again using the required JSON format only.",
+        });
+        this.notifyInterceptors({
           role: "developer",
           content:
             "Your last message was not valid JSON. Reply again using the required JSON format only.",
@@ -143,6 +162,11 @@ export class Agent {
 
       // Neither a tool request nor an output: nudge the model and keep looping.
       this.messagesHistory.push({
+        role: "developer",
+        content:
+          'Your last message had neither a "Tool Request" nor an "Output". Provide one of them.',
+      });
+      this.notifyInterceptors({
         role: "developer",
         content:
           'Your last message had neither a "Tool Request" nor an "Output". Provide one of them.',
