@@ -21,12 +21,12 @@ export class AgentBuilder {
   }
 
   public setInstructions(instructions: string): AgentBuilder {
-    this.instructions = `
-      ${HARNESS_PROMPT}\n\n
+    this.instructions = instructions;
+    return this;
+  }
 
-      System Instructions:
-      ${instructions}
-    `;
+  public tool(t: ITool): AgentBuilder {
+    this.toolList.push(t);
     return this;
   }
 
@@ -38,10 +38,29 @@ export class AgentBuilder {
 export class Agent {
   private instructions: string;
   private messagesHistory: IMessage[] = [];
+  private toolMap: Map<string, ITool>;
 
   constructor(builder: AgentBuilder) {
-    this.instructions = builder.instructions ?? "Default instructions";
+    this.toolMap = new Map<string, ITool>();
+
+    for (const tool of builder.toolList) {
+      this.toolMap.set(tool.name, tool);
+    }
+
+    this.instructions = `
+      ${HARNESS_PROMPT}\n\n
+
+
+
+      System Instructions:
+      ${builder.instructions}
+
+
+      Avaliable Tools: 
+      ${builder.toolList.map(t = > JSON.stringify({ name: t.name, description: t.description, doc: t.doc })).join("\n")}
+    `;
     this.messagesHistory = [];
+    
   }
 
   static builder(): AgentBuilder {
