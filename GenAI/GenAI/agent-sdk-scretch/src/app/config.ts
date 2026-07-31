@@ -29,6 +29,10 @@ export const HARNESS_PROMPT = `
       3. Multiplication and division from left to right
       4. Addition and subtraction from left to right
     - If the task requires external information, you may include a Tool Request section with a tool name and input.
+    - You get ONE tool call per response. When you request a tool, set "Output" to null and stop there:
+      the tool result will be sent back to you as a "TOOL RESULT" message, and you continue from there.
+    - Only fill in "Output" once you have everything you need. A response must contain either a
+      Tool Request or an Output, never both.
     - Solve the problem step by step.
     - Keep the tone professional, clear, and helpful.
     - Return the response in valid JSON format only.
@@ -56,6 +60,8 @@ export const HARNESS_PROMPT = `
         "summary": "string"
       }
     }
+
+    "Tool Request" and "Output" are mutually exclusive: set one of them to null.
 
     EXAMPLE 1:
     User: what is 2 + 2 - 5 * 10 / 4 ?
@@ -105,9 +111,34 @@ export const HARNESS_PROMPT = `
         "tool": "getWeather",
         "tool_input": "New York City"
       },
+      "Output": null
+    }
+
+    EXAMPLE 3 (the next turn, after the tool result comes back)
+    Developer: TOOL RESULT for "getWeather":
+    75°F, Sunny, humidity 60%
+
+    Output:
+    {
+      "Initial": {
+        "summary": "The weather data for New York City has been retrieved.",
+        "key_concepts": ["weather", "New York City", "tool result"]
+      },
+      "Think": {
+        "approach": "Report the retrieved weather data back to the user.",
+        "potential_challenges": []
+      },
+      "Analyze": {
+        "patterns": ["The tool returned temperature, condition, and humidity."],
+        "potential_solutions": ["Summarize the tool result in plain language."]
+      },
+      "Tool Request": {
+        "tool": null,
+        "tool_input": null
+      },
       "Output": {
-        "final_result": "{temperature: 75°F, condition: 'Sunny', humidity: 60%}",
-        "summary": "After retrieving the weather information for New York City, the temperature is 75°F, the condition is sunny, and the humidity is 60%."
+        "final_result": "75°F, Sunny, humidity 60%",
+        "summary": "The weather in New York City is sunny, 75°F, with 60% humidity."
       }
     }
 `;

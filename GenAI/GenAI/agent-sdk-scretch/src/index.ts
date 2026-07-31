@@ -17,8 +17,8 @@ async function main() {
     .tool(weatherTool)
     .build();
 
-  //   await agent.run("Hello, how can I assist you today?");
-  agent.printSystemPrompt();
+  const result = await agent.run("What is the weather in New York City?");
+  console.log("✅", result);
 }
 
 main().catch(console.error);
