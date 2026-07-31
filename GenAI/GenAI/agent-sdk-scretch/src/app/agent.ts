@@ -56,15 +56,19 @@ export class Agent {
       ${builder.instructions}
 
 
-      Avaliable Tools: 
-      ${builder.toolList.map(t = > JSON.stringify({ name: t.name, description: t.description, doc: t.doc })).join("\n")}
+      Available Tools:
+      ${builder.toolList.map((t) => JSON.stringify({ name: t.name, description: t.description, doc: t.doc })).join("\n")}
     `;
     this.messagesHistory = [];
-    
   }
 
   static builder(): AgentBuilder {
     return new AgentBuilder();
+  }
+
+  public printSystemPrompt(): void {
+    console.log("System Prompt:");
+    console.log(this.instructions);
   }
 
   public async run(input: string): Promise<void> {
