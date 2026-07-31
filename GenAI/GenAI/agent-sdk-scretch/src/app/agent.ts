@@ -1,15 +1,32 @@
+import { HARNESS_PROMPT } from "./config.js";
+
 export interface IMessage {
   role: "developer" | "user" | "assistant";
   content: string;
 }
 
+export interface ITool {
+  name: string;
+  description: string;
+  doc?: string;
+  execute: (input: string) => Promise<string>;
+}
+
 export class AgentBuilder {
   public instructions: string | undefined;
+  public toolList: ITool[];
 
-  constructor() {}
+  constructor() {
+    this.toolList = [];
+  }
 
   public setInstructions(instructions: string): AgentBuilder {
-    this.instructions = instructions;
+    this.instructions = `
+      ${HARNESS_PROMPT}\n\n
+
+      System Instructions:
+      ${instructions}
+    `;
     return this;
   }
 
