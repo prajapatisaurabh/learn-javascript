@@ -12,5 +12,8 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "openai": "^6.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2"
   }
 }
