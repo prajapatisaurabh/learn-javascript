@@ -39,6 +39,7 @@ export class Agent {
   private instructions: string;
   private messagesHistory: IMessage[] = [];
   private toolMap: Map<string, ITool>;
+  private MAX_Loops = 30;
 
   constructor(builder: AgentBuilder) {
     this.toolMap = new Map<string, ITool>();
@@ -72,7 +73,19 @@ export class Agent {
   }
 
   public async run(input: string): Promise<void> {
-    console.log(`Agent received input: ${input}`);
-    console.log(`Agent response: I can assist you with that!`);
+    // APPEND QUERY TO MESSAGE HISTORY
+    for (let i = 0; i < this.MAX_Loops; i++) {
+      // ..call LLM (System prompts + MESSAGE HISTIORY + )
+      // APPEND LLM RESPONSE TO MESSAGE HISTORY
+      // IF LLMRESPONSE == OUTPUT , BREAK THE CONDITION
+      // IF LLMRESPONSE == TOOL REQUEST, CALL THE TOOL, APPEND THE TOOL RESPONSE TO MESSAGE HISTORY
+      /**
+       * TOOL MAP  FND LLM REPONSE.FUNCTIONAME
+       *
+       * TOOL.EXECUTE(LLM RESPONSE.INPUT)
+       * APPEND TOOLRESULT TO MESSAGE HISTORY
+       * CONTINUE LOOP
+       */
+    }
   }
 }
