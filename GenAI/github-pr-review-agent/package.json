@@ -1,0 +1,15 @@
+{
+  "name": "github-pr-review-agent",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@types/node": "^26.2.0",
+    "express": "^5.2.1",
+    "inngest": "^4.18.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6"
+  }
+}
