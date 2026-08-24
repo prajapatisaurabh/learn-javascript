@@ -1,6 +1,8 @@
+import "dotenv/config";
 import express from "express";
 import { serve } from "inngest/express";
-import { inngest, functions } from "./src/inngest"
+import { inngest } from "./innjest/client.js";
+import { functions } from "./innjest/functions/index.js";
 
 const app = express();
 // Important: ensure you add JSON middleware to process incoming JSON POST payloads.
