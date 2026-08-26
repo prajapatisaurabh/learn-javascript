@@ -8,6 +8,7 @@
     "dev": "node index.js"
   },
   "dependencies": {
+    "@octokit/rest": "^22.0.1",
     "@types/node": "^26.2.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
