@@ -5,7 +5,7 @@ load_dotenv()
 
 client = OpenAI()
 
-text = "The cat is on the table."
+text = "The cat is on the table. and chekes the mouse "
 
 response = client.embeddings.create(
     input=text,
