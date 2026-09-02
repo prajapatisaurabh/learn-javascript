@@ -5,6 +5,8 @@ import { z } from "zod"
 export const GithubReviewAgentResultSchema = z.object({
     criticalFixes: z.array(z.string().optional().nullable().describe("List of critical fixes identified in the pull request changes")),
     suggestions: z.array(z.string().optional().nullable().describe("List of suggestions for improvements or enhancements based on the pull request changes")),
+    content: z.string().describe("A summary of the modifications made in the pull request, including any critical fixes and suggestions for improvements"),
+    event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).describe("The recommended action for the pull request based on the analysis of the changes"),
 })
 
 export const githubPRReviewAgent = new Agent({
