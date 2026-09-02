@@ -66,7 +66,7 @@ export const githubPullRequestReview = inngest.createFunction(
 
 
         await step.run("create-review-comment", async () => {
-            const reviewComment = await octokit.pulls.createReview({
+            const reviewComment = await octokit.pulls.createComment({
                 owner,
                 repo,
                 pull_number,
