@@ -46,6 +46,13 @@ export const githubPullRequestReview = inngest.createFunction(
             }));
         });
 
+
+        if (!changes || changes.length === 0) {
+            return { message: "No changes found in the pull request", skip: true, complete: false };
+        }
+
+        await step.run("")
+
         return {
             id: pullRequestInfo.id,
             title: pullRequestInfo.title,
