@@ -66,10 +66,10 @@ export const githubPullRequestReview = inngest.createFunction(
 
 
         await step.run("create-review-comment", async () => {
-            const reviewComment = await octokit.pulls.createComment({
+            const reviewComment = await octokit.issues.createComment({
                 owner,
                 repo,
-                pull_number,
+                issue_number: pull_number,
                 commit_id: pullRequestInfo.head.sha,
                 event: analysis.event,
                 body: `### Automated Review Summary\n\n**Summary of Modifications:**\n${analysis.content}\n\n**Critical Fixes Identified:**\n${analysis.criticalFixes.length > 0 ? analysis.criticalFixes.map(fix => `- ${fix}`).join("\n") : "None"}\n\n**Suggestions for Improvements:**\n${analysis.suggestions.length > 0 ? analysis.suggestions.map(suggestion => `- ${suggestion}`).join("\n") : "None"}`
