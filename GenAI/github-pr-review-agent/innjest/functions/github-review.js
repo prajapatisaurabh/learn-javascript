@@ -1,6 +1,7 @@
 import { inngest } from "../client.js";
 import { octokit } from "../../lib/github.js";
-
+import { run } from "@openai/agents"
+import { githubPRReviewAgent } from "../../agents/github-pr-review-agents.js"
 export const githubPullRequestReview = inngest.createFunction(
     {
         id: "github-pr-review-agent/github-pull-request-review",
@@ -51,7 +52,17 @@ export const githubPullRequestReview = inngest.createFunction(
             return { message: "No changes found in the pull request", skip: true, complete: false };
         }
 
-        await step.run("")
+        const analysis = await step.run("ai-analyze-changes", async () => {
+            const result = await run(
+                githubPRReviewAgent,
+                `Pull request title: ${pullRequestInfo.title}\n` +
+                `Description: ${pullRequestInfo.body ?? "(none)"}\n` +
+                `URL: ${pullRequestInfo.url}\n\n` +
+                `Changes:\n${JSON.stringify(changes, null, 2)}`
+            );
+
+            return result.finalOutput;
+        });
 
         return {
             id: pullRequestInfo.id,
@@ -59,7 +70,8 @@ export const githubPullRequestReview = inngest.createFunction(
             description: pullRequestInfo.body,
             comment: pullRequestInfo.comments,
             url: pullRequestInfo.url,
-            diff: changes
+            diff: changes,
+            analysis
         };
     }
 )
